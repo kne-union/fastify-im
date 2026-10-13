@@ -1,14 +1,16 @@
 {
   "name": "@kne/fastify-im",
   "version": "0.1.0",
-  "description": "实现一个im工具",
+  "description": "通用IM即时通讯Fastify插件，支持WebSocket消息、单聊群聊、系统消息推送、离线通知、身份认证与角色权限",
   "main": "index.js",
   "scripts": {
     "init": "husky",
     "build:md": "npx @kne/md-doc",
     "start:md": "npx @kne/md-doc --watch",
     "prettier": "prettier --config .prettierrc --write '{libs/**/*,index}.{js,jsx,ts,tsx,json,css,scss}'",
-    "lint-staged": "npx lint-staged"
+    "lint-staged": "npx lint-staged",
+    "test": "mocha test/**/*.test.js",
+    "test:coverage": "nyc --reporter=html --reporter=text mocha test/**/*.test.js"
   },
   "lint-staged": {
     "{libs/**/*,index}.{js,jsx,ts,tsx,json,css,scss}": [
@@ -24,7 +26,17 @@
     "type": "git",
     "url": "git+https://github.com/kne-union/fastify-im.git"
   },
-  "keywords": [],
+  "keywords": [
+    "fastify",
+    "im",
+    "websocket",
+    "chat",
+    "messaging",
+    "instant-messaging",
+    "group-chat",
+    "system-message",
+    "notification"
+  ],
   "author": "linzp",
   "license": "ISC",
   "bugs": {
@@ -32,17 +44,22 @@
   },
   "homepage": "https://github.com/kne-union/fastify-im#readme",
   "peerDependencies": {
+    "@fastify/websocket": ">=9",
     "@kne/fastify-namespace": "*",
     "@kne/fastify-sequelize": "*",
     "fastify-plugin": ">=5"
   },
   "devDependencies": {
     "@fastify/env": "^5.0.2",
+    "@fastify/websocket": "^9.0.0",
     "@kne/fastify-sequelize": "^3.0.6",
+    "chai": "^6.2.2",
     "fastify": "^5.4.0",
     "fastify-plugin": "^5.0.1",
     "husky": "^9.0.11",
+    "mocha": "^11.7.5",
     "nodemon": "^3.1.3",
+    "nyc": "^18.0.0",
     "prettier": "^3.2.5",
     "sqlite3": "^5.1.7"
   }
