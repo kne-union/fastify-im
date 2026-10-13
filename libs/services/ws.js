@@ -1,4 +1,6 @@
 const fp = require('fastify-plugin');
+const crypto = require('node:crypto');
+const { clientMessage } = require('../client-message');
 
 /**
  * 内存存储适配器 - 默认实现
@@ -102,7 +104,10 @@ module.exports = fp(async (fastify, options) => {
           try {
             const clientInfo = await options.verifyToken(token);
             if (clientInfo) return clientInfo;
-          } catch (e) {}
+          } catch (error) {
+            fastify.log?.warn({ err: error }, 'verifyToken failed');
+            return { error: { code: 4003, reason: 'Authentication failed' } };
+          }
         }
 
         // 2. 尝试 shorten token (访客)
@@ -151,8 +156,8 @@ module.exports = fp(async (fastify, options) => {
                 isGuest: true
               };
             }
-          } catch (e) {
-            // shorten 解码失败，继续
+          } catch (error) {
+            fastify.log?.warn({ err: error }, 'shorten token decode failed');
           }
         }
 
@@ -170,17 +175,35 @@ module.exports = fp(async (fastify, options) => {
           clientInfo,
           alive: true,
           heartbeatTimer: setInterval(() => {
-            if (!connection.alive) {
+            const writable = typeof socket.readyState !== 'number' || socket.readyState === 1;
+            if (!writable) {
+              services.metrics?.inc('im_zombie_connection_total');
+              fastify.log?.warn({ userId: clientInfo.userId, instanceId: options.instanceId }, 'zombie socket');
               clearInterval(connection.heartbeatTimer);
               try {
                 socket.close(4004, 'Heartbeat timeout');
-              } catch (e) {}
+              } catch (error) {
+                fastify.log?.warn({ err: error, userId: clientInfo.userId }, 'zombie socket close failed');
+              }
+              return;
+            }
+            if (!connection.alive) {
+              services.metrics?.inc('im_heartbeat_timeout_total');
+              fastify.log?.warn({ userId: clientInfo.userId, instanceId: options.instanceId }, 'heartbeat timeout');
+              clearInterval(connection.heartbeatTimer);
+              try {
+                socket.close(4004, 'Heartbeat timeout');
+              } catch (error) {
+                fastify.log?.warn({ err: error, userId: clientInfo.userId }, 'heartbeat close failed');
+              }
               return;
             }
             connection.alive = false;
             try {
               socket.ping();
-            } catch (e) {}
+            } catch (error) {
+              fastify.log?.warn({ err: error, userId: clientInfo.userId }, 'heartbeat ping failed');
+            }
           }, heartbeatInterval)
         };
 
@@ -240,8 +263,12 @@ module.exports = fp(async (fastify, options) => {
             return services.ws.handleGetConversations(clientInfo, payload);
 
           case 'sendMessage':
-            return services.ws.handleSendMessage(clientInfo, payload);
+            return services.ws.handleSendMessage(clientInfo, payload, data.traceId);
 
+          case 'recvAck':
+            return services.ws.handleRecvAck(clientInfo, payload);
+
+          case 'readAck':
           case 'readMessages':
             return services.ws.handleReadMessages(clientInfo, payload);
 
@@ -280,7 +307,9 @@ module.exports = fp(async (fastify, options) => {
           if (connection) {
             try {
               connection.socket.send(message);
-            } catch (e) {}
+            } catch (error) {
+              fastify.log?.warn({ err: error, userId }, 'ws send failed');
+            }
           }
         }
         return true;
@@ -362,9 +391,12 @@ module.exports = fp(async (fastify, options) => {
         }
       },
 
-      async handleSendMessage(clientInfo, payload) {
+      async handleSendMessage(clientInfo, payload = {}, traceId) {
         const conversationId = payload.conversationId || clientInfo.conversationId;
-
+        if (!payload.clientMsgId) {
+          await services.ws.sendToUser(clientInfo.userId, 'error', { message: 'clientMsgId required' });
+          return;
+        }
         if (clientInfo.isGuest && conversationId !== clientInfo.conversationId) {
           await services.ws.sendToUser(clientInfo.userId, 'error', {
             message: 'Guest can only send messages in assigned conversation'
@@ -384,22 +416,71 @@ module.exports = fp(async (fastify, options) => {
           senderMemberId = member.id;
         }
 
-        await services.message.sendMessage({
-          conversationId,
-          senderMemberId,
-          content: payload.content,
-          type: payload.type
-        });
+        const resolvedTraceId = traceId || payload.traceId || crypto.randomUUID();
+        if (Number(payload.retry) > 0) await services.metrics?.record('im:send_retry');
+        const started = Date.now();
+        try {
+          await services.message.sendMessage({
+            conversationId,
+            senderMemberId,
+            content: payload.content,
+            type: payload.type,
+            clientMsgId: payload.clientMsgId,
+            traceId: resolvedTraceId,
+            onPersisted: async message => {
+              const sentAt = Number(payload.sentAt);
+              services.metrics?.observeSendAck(Number.isFinite(sentAt) ? Date.now() - sentAt : Date.now() - started);
+              fastify.log?.info(
+                {
+                  traceId: resolvedTraceId,
+                  userId: clientInfo.userId,
+                  conversationId,
+                  clientMsgId: payload.clientMsgId,
+                  seq: message.seq,
+                  instanceId: options.instanceId
+                },
+                'message persisted'
+              );
+              await services.ws.sendToUser(clientInfo.userId, 'sendAck', {
+                messageId: message.id,
+                seq: message.seq,
+                clientMsgId: message.clientMsgId,
+                traceId: resolvedTraceId,
+                conversationId
+              });
+            }
+          });
+        } catch (error) {
+          fastify.log?.error({ err: error, traceId: resolvedTraceId, userId: clientInfo.userId, conversationId, clientMsgId: payload.clientMsgId, instanceId: options.instanceId }, 'send message failed');
+          await services.ws.sendToUser(clientInfo.userId, 'error', { message: clientMessage(error) });
+        }
       },
 
-      async handleReadMessages(clientInfo, payload) {
+      async handleRecvAck(clientInfo, payload = {}) {
+        try {
+          const conversationId = payload.conversationId || clientInfo.conversationId;
+          const memberId = await services.conversation.resolveMemberId(clientInfo, conversationId);
+          if (!memberId) throw new Error('Not a member of this conversation');
+          await services.message.recvAck({ messageId: payload.messageId, memberId });
+        } catch (error) {
+          fastify.log?.warn({ err: error, userId: clientInfo.userId, messageId: payload.messageId }, 'recvAck failed');
+          await services.ws.sendToUser(clientInfo.userId, 'error', { message: clientMessage(error) });
+        }
+      },
+
+      async handleReadMessages(clientInfo, payload = {}) {
         const conversationId = payload.conversationId || clientInfo.conversationId;
         if (clientInfo.isGuest && conversationId !== clientInfo.conversationId) return;
 
         const memberId = await services.conversation.resolveMemberId(clientInfo, conversationId);
         if (!memberId) return;
 
-        await services.message.readMessages(conversationId, memberId, payload.lastMessageId);
+        try {
+          await services.message.readMessages(conversationId, memberId, payload.lastMessageId, payload.lastSeq);
+        } catch (error) {
+          fastify.log?.warn({ err: error, userId: clientInfo.userId, conversationId }, 'readAck failed');
+          await services.ws.sendToUser(clientInfo.userId, 'error', { message: clientMessage(error) });
+        }
       },
 
       async handleRevokeMessage(clientInfo, payload) {
@@ -408,8 +489,8 @@ module.exports = fp(async (fastify, options) => {
             memberId: clientInfo.memberId,
             userId: clientInfo.isGuest ? null : clientInfo.userId
           });
-        } catch (e) {
-          await services.ws.sendToUser(clientInfo.userId, 'error', { message: e.message });
+        } catch (error) {
+          await services.ws.sendToUser(clientInfo.userId, 'error', { message: clientMessage(error) });
         }
       },
 
@@ -490,7 +571,9 @@ module.exports = fp(async (fastify, options) => {
         try {
           const systemUnread = await services.systemMessage.getUnreadSystemMessageCount(userId);
           await services.ws.sendToUser(userId, 'unreadSystemCount', { count: systemUnread });
-        } catch (e) {}
+        } catch (error) {
+          fastify.log?.warn({ err: error, userId }, 'push unread system count failed');
+        }
       },
 
       async closeAll() {

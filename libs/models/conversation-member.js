@@ -26,6 +26,12 @@ module.exports = ({ DataTypes, definePrimaryType, options }) => {
         type: definePrimaryType(),
         comment: '最后已读消息ID'
       },
+      lastReadSeq: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+        comment: '最后已读序号，只允许前进'
+      },
       leftAt: {
         type: DataTypes.DATE,
         comment: '退出时间(null表示仍在群内)'

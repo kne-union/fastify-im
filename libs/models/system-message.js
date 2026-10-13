@@ -10,8 +10,12 @@ module.exports = ({ DataTypes, definePrimaryType, options }) => {
         comment: '消息标题'
       },
       content: {
-        type: DataTypes.JSONB,
+        type: DataTypes.JSON,
         comment: '消息内容'
+      },
+      dedupeKey: {
+        type: DataTypes.STRING,
+        comment: '业务去重键，同一用户只落一条'
       },
       targetRole: {
         type: DataTypes.STRING,
@@ -23,7 +27,7 @@ module.exports = ({ DataTypes, definePrimaryType, options }) => {
         comment: '是否已读'
       },
       props: {
-        type: DataTypes.JSONB,
+        type: DataTypes.JSON,
         comment: '附加属性'
       },
       options: {
@@ -36,7 +40,7 @@ module.exports = ({ DataTypes, definePrimaryType, options }) => {
     },
     options: {
       comment: 'IM系统消息表',
-      indexes: [{ fields: ['target_user_id'] }, { fields: ['target_role'] }, { fields: ['is_read'] }]
+      indexes: [{ fields: ['target_user_id'] }, { fields: ['target_role'] }, { fields: ['is_read'] }, { fields: ['target_user_id', 'dedupe_key'], unique: true }]
     }
   };
 };

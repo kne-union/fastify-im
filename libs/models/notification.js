@@ -15,6 +15,11 @@ module.exports = ({ DataTypes, definePrimaryType, options }) => {
         comment: '会话ID',
         allowNull: true
       },
+      messageId: {
+        type: definePrimaryType(),
+        comment: '消息ID，同一目标同一消息只通知一次',
+        allowNull: true
+      },
       messageType: {
         type: DataTypes.STRING,
         comment: '消息类型'
@@ -31,7 +36,7 @@ module.exports = ({ DataTypes, definePrimaryType, options }) => {
     associate: () => {},
     options: {
       comment: 'IM通知记录表',
-      indexes: [{ fields: ['target_id'] }, { fields: ['target_type'] }, { fields: ['conversation_id'] }, { fields: ['target_id', 'conversation_id'] }, { fields: ['created_at'] }]
+      indexes: [{ fields: ['target_id'] }, { fields: ['target_type'] }, { fields: ['conversation_id'] }, { fields: ['message_id'] }, { fields: ['target_id', 'conversation_id', 'message_id'], unique: true }, { fields: ['created_at'] }]
     }
   };
 };

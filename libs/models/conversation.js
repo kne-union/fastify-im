@@ -14,6 +14,12 @@ module.exports = ({ DataTypes, definePrimaryType, options }) => {
         type: DataTypes.STRING,
         comment: '会话头像(群聊时使用)'
       },
+      lastSeq: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+        comment: '会话内已分配的最大序号'
+      },
       options: {
         type: DataTypes.JSONB,
         comment: '扩展字段'
