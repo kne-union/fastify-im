@@ -6,7 +6,34 @@ module.exports = fp(async (fastify, options) => {
     {},
     {
       dbTableNamePrefix: 't_',
-      name: 'im'
+      name: 'im',
+      offlineNotifyInterval: 24,
+      heartbeatInterval: 30000,
+      connectionStore: null,
+      sendOfflineMessages: null,
+      getParticipantInfo: null,
+      getUserModel: () => {
+        if (!fastify.account) {
+          throw new Error('fastify-account 插件未注册，无法获取用户模型，请注册fastify-account插件或者自行实现options.getUserModel');
+        }
+        return fastify.account.models.user;
+      },
+      getAuthenticate: type => {
+        if (!fastify.account) {
+          return [];
+        }
+        const { authenticate } = fastify.account;
+        switch (type) {
+          case 'conversation':
+          case 'conversation:create':
+          case 'conversation:leave':
+          case 'message':
+          case 'conversation:manage':
+          case 'systemMessage':
+          default:
+            return [authenticate.user];
+        }
+      }
     },
     options
   );
@@ -19,7 +46,9 @@ module.exports = fp(async (fastify, options) => {
       [
         'models',
         await fastify.sequelize.addModels(path.resolve(__dirname, './libs/models'), {
-          prefix: options.dbTableNamePrefix
+          prefix: options.dbTableNamePrefix,
+          getUserModel: options.getUserModel,
+          modelPrefix: options.name
         })
       ],
       ['services', path.resolve(__dirname, './libs/services')]
