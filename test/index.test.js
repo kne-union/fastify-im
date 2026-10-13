@@ -473,46 +473,52 @@ describe('@kne/fastify-im', function () {
     it('should send offline notification when configured', async () => {
       let notificationData = null;
       const app = await createTestApp({
-        sendOfflineMessages: async (data) => { notificationData = data; }
+        sendOfflineMessages: async data => {
+          notificationData = data;
+        }
       });
       const uid = app._userIdMap;
       const conv = await app.im.services.conversation.createSingleConversation(uid.user1, uid.user2);
       const member = await app.im.services.conversation.getMemberByUserAndConversation(uid.user1, conv.id);
       await app.im.services.message.sendMessage({
-        conversationId: conv.id, senderMemberId: member.id, content: 'test', type: 'text'
-      });
-      await app.im.services.notification.sendOfflineNotification({
-        targetId: uid.user2, targetType: 'user',
-        messageInfo: { type: 'text', senderInfo: { name: 'User1' } },
-        conversationInfo: { id: conv.id }
+        conversationId: conv.id,
+        senderMemberId: member.id,
+        content: 'test',
+        type: 'text'
       });
       expect(notificationData).to.exist;
       expect(notificationData.sender.name).to.equal('User One');
       await cleanupApp(app);
     });
 
-    it('should deduplicate notifications within interval', async () => {
+    it('should deduplicate offline notification per message', async () => {
       let callCount = 0;
       const app = await createTestApp({
-        sendOfflineMessages: async () => { callCount++; }
+        sendOfflineMessages: async () => {
+          callCount++;
+        }
       });
       const uid = app._userIdMap;
       const conv = await app.im.services.conversation.createSingleConversation(uid.user1, uid.user2);
-      const member = await app.im.services.conversation.getMemberByUserAndConversation(uid.user1, conv.id);
-      await app.im.services.message.sendMessage({
-        conversationId: conv.id, senderMemberId: member.id, content: 'test', type: 'text'
-      });
       await app.im.services.notification.sendOfflineNotification({
-        targetId: uid.user2, targetType: 'user',
-        messageInfo: { type: 'text', senderInfo: null },
+        targetId: uid.user2,
+        targetType: 'user',
+        messageInfo: { id: 'm1', type: 'text', senderInfo: null },
         conversationInfo: { id: conv.id }
       });
       await app.im.services.notification.sendOfflineNotification({
-        targetId: uid.user2, targetType: 'user',
-        messageInfo: { type: 'text', senderInfo: null },
+        targetId: uid.user2,
+        targetType: 'user',
+        messageInfo: { id: 'm1', type: 'text', senderInfo: null },
         conversationInfo: { id: conv.id }
       });
-      expect(callCount).to.equal(1);
+      await app.im.services.notification.sendOfflineNotification({
+        targetId: uid.user2,
+        targetType: 'user',
+        messageInfo: { id: 'm2', type: 'text', senderInfo: null },
+        conversationInfo: { id: conv.id }
+      });
+      expect(callCount).to.equal(2);
       await cleanupApp(app);
     });
   });
@@ -697,8 +703,14 @@ describe('@kne/fastify-im', function () {
     it('should handle sendMessage', async () => {
       await app.im.services.ws.handleMessage({
         type: 'sendMessage',
-        payload: { conversationId: clientInfo.conversationId, content: 'test', type: 'text' }
+        traceId: 'trace-1',
+        payload: { conversationId: clientInfo.conversationId, content: 'test', type: 'text', clientMsgId: 'ws-1' }
       }, clientInfo);
+      const ack = sentMessages.find(m => m.type === 'sendAck');
+      expect(ack).to.exist;
+      expect(ack.payload.clientMsgId).to.equal('ws-1');
+      expect(ack.payload.traceId).to.equal('trace-1');
+      expect(ack.payload.seq).to.equal(1);
       expect(sentMessages.find(m => m.type === 'sendMessageSuccess')).to.exist;
     });
 
@@ -734,7 +746,7 @@ describe('@kne/fastify-im', function () {
       await app.im.services.ws.create(mockSocket, guestClientInfo);
       await app.im.services.ws.handleMessage({
         type: 'sendMessage',
-        payload: { conversationId: 'different_conv', content: 'test', type: 'text' }
+        payload: { conversationId: 'different_conv', content: 'test', type: 'text', clientMsgId: 'guest-1' }
       }, guestClientInfo);
       const msg = sentMessages.find(m => m.type === 'error');
       expect(msg).to.exist;

@@ -2,32 +2,26 @@ const fp = require('fastify-plugin');
 
 module.exports = fp(async (fastify, options) => {
   const { models, services } = fastify[options.name];
-  const { Op } = fastify.sequelize.Sequelize;
 
   Object.assign(fastify[options.name].services, {
     notification: {
       async sendOfflineNotification({ targetId, targetType, messageInfo, conversationInfo }) {
         if (!options.sendOfflineMessages) return;
 
-        const interval = options.offlineNotifyInterval || 24;
-        const since = new Date(Date.now() - interval * 60 * 60 * 1000);
-
-        // 按 targetId + conversationId 去重，不同会话的通知互不影响
-        const recentNotification = await models.notification.findOne({
-          where: {
-            targetId,
-            conversationId: conversationInfo.id,
-            createdAt: { [Op.gte]: since }
-          }
-        });
-
-        if (recentNotification) return;
+        const messageId = messageInfo?.id || messageInfo?.messageId || null;
+        const conversationId = conversationInfo?.id || null;
+        if (messageId) {
+          const existing = await models.notification.findOne({
+            where: { targetId, conversationId, messageId }
+          });
+          if (existing) return;
+        }
 
         let unreadCount = 0;
         if (targetType === 'user') {
           unreadCount = await services.message.getUnreadCount(targetId);
-        } else {
-          const unreadCounts = await services.message.getUnreadCountByConversation(conversationInfo.id);
+        } else if (conversationId) {
+          const unreadCounts = await services.message.getUnreadCountByConversation(conversationId);
           unreadCount = unreadCounts[targetId] || 0;
         }
 
@@ -42,13 +36,19 @@ module.exports = fp(async (fastify, options) => {
           sender
         });
 
-        await models.notification.create({
-          targetId,
-          targetType,
-          conversationId: conversationInfo.id,
-          messageType: messageInfo.type || 'im_offline',
-          content: { messageInfo, conversationInfo }
-        });
+        try {
+          await models.notification.create({
+            targetId,
+            targetType,
+            conversationId,
+            messageId,
+            messageType: messageInfo.type || 'im_offline',
+            content: { messageInfo, conversationInfo }
+          });
+        } catch (error) {
+          if (error?.name === 'SequelizeUniqueConstraintError') return;
+          throw error;
+        }
       }
     }
   });

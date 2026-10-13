@@ -1,4 +1,5 @@
 const fp = require('fastify-plugin');
+const os = require('node:os');
 const path = require('node:path');
 
 module.exports = fp(async (fastify, options) => {
@@ -9,6 +10,8 @@ module.exports = fp(async (fastify, options) => {
       name: 'im',
       offlineNotifyInterval: 24,
       heartbeatInterval: 30000,
+      instanceId: `${os.hostname()}:${process.pid}`,
+      backlogWarn: 1000,
       connectionStore: null,
       sendOfflineMessages: null,
       getParticipantInfo: null,
@@ -37,6 +40,36 @@ module.exports = fp(async (fastify, options) => {
     },
     options
   );
+
+  if (!fastify.hasDecorator('cron')) {
+    const cronPlugin = require('fastify-cron');
+    await fastify.register(cronPlugin.default || cronPlugin);
+  }
+  if (!fastify.hasDecorator('statistics')) {
+    await fastify.register(
+      require('@kne/fastify-statistics'),
+      Object.assign(
+        {
+          prefix: `${options.prefix}/statistics`,
+          dbTableNamePrefix: options.dbTableNamePrefix,
+          instanceId: options.instanceId,
+          compensationEnabled: false,
+          purgeDeletedCron: false,
+          getAuthenticate: type =>
+            type === 'metrics'
+              ? []
+              : [
+                  async () => {
+                    const error = new Error('接口禁止访问');
+                    error.statusCode = 403;
+                    throw error;
+                  }
+                ]
+        },
+        options.statistics
+      )
+    );
+  }
 
   fastify.register(require('@kne/fastify-namespace'), {
     options,

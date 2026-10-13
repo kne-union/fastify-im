@@ -6,8 +6,20 @@ module.exports = ({ DataTypes, definePrimaryType, options }) => {
         comment: '发送者角色(string类型)'
       },
       content: {
-        type: DataTypes.JSONB,
+        type: DataTypes.JSON,
         comment: '消息内容: {type, value}'
+      },
+      clientMsgId: {
+        type: DataTypes.STRING,
+        comment: '客户端消息号，同一发送者在同一会话内唯一'
+      },
+      seq: {
+        type: DataTypes.INTEGER,
+        comment: '会话内单调序号，0.2.0 之前的消息为空'
+      },
+      traceId: {
+        type: DataTypes.STRING,
+        comment: '业务链路号'
       },
       type: {
         type: DataTypes.STRING,
@@ -30,7 +42,7 @@ module.exports = ({ DataTypes, definePrimaryType, options }) => {
     },
     options: {
       comment: 'IM消息表',
-      indexes: [{ fields: ['conversation_id'] }, { fields: ['sender_id'] }, { fields: ['created_at'] }]
+      indexes: [{ fields: ['conversation_id'] }, { fields: ['sender_id'] }, { fields: ['created_at'] }, { fields: ['conversation_id', 'seq'], unique: true }, { fields: ['conversation_id', 'sender_id', 'client_msg_id'], unique: true }]
     }
   };
 };

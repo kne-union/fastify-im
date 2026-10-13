@@ -1,4 +1,5 @@
 const fp = require('fastify-plugin');
+const { clientMessage } = require('../client-message');
 
 module.exports = fp(async (fastify, options) => {
   const { services } = fastify[options.name];
@@ -24,21 +25,28 @@ module.exports = fp(async (fastify, options) => {
       await dispatch(raw);
     });
 
-    socket.on('close', async () => {
+    socket.on('close', async code => {
+      services.metrics?.inc('im_ws_close_total', { code: String(code || 0) });
+      fastify.log?.info({ code: code || 0, userId: clientInfo?.userId, instanceId: options.instanceId }, 'ws closed');
       if (!socketId || !clientInfo) return;
       try {
         await services.ws.onDisconnect(socketId, clientInfo);
-      } catch (e) {}
+      } catch (error) {
+        fastify.log?.warn({ err: error, userId: clientInfo.userId }, 'ws disconnect cleanup failed');
+      }
     });
 
     async function dispatch(raw) {
       try {
         const data = JSON.parse(raw);
         await services.ws.handleMessage(data, clientInfo);
-      } catch (e) {
+      } catch (error) {
+        fastify.log?.error({ err: error, userId: clientInfo?.userId }, 'ws message failed');
         try {
-          socket.send(JSON.stringify({ type: 'error', payload: { message: e.message } }));
-        } catch (err) {}
+          socket.send(JSON.stringify({ type: 'error', payload: { message: clientMessage(error) } }));
+        } catch (sendError) {
+          fastify.log?.warn({ err: sendError }, 'ws error frame failed');
+        }
       }
     }
 
