@@ -22,10 +22,9 @@ module.exports = ({ DataTypes, definePrimaryType, options }) => {
         type: DataTypes.STRING,
         comment: '参与者邮箱(访客可选填写)'
       },
-      lastReadMessageId: {
-        type: definePrimaryType(),
+      lastReadMessageId: definePrimaryType('lastReadMessageId', {
         comment: '最后已读消息ID'
-      },
+      }),
       lastReadSeq: {
         type: DataTypes.INTEGER,
         allowNull: false,

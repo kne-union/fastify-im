@@ -1,16 +1,14 @@
 module.exports = ({ DataTypes, definePrimaryType }) => {
   return {
     model: {
-      messageId: {
-        type: definePrimaryType(),
+      messageId: definePrimaryType('messageId', {
         allowNull: false,
         comment: '消息ID'
-      },
-      memberId: {
-        type: definePrimaryType(),
+      }),
+      memberId: definePrimaryType('memberId', {
         allowNull: false,
         comment: '接收方成员ID'
-      },
+      }),
       recvAckAt: {
         type: DataTypes.DATE,
         comment: '本连接确认收到的时间'
