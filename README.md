@@ -16,6 +16,10 @@ npm i --save @kne/fastify-im
 
 ### 示例
 
+### 演进
+
+对照 Rocket.Chat 的能力分层，本包定位为可嵌入的 IM **后端内核**（非全量协作产品）。路线图与关键节点见 [doc/roadmap.md](./doc/roadmap.md)。
+
 ### API
 
 #### 插件选项
