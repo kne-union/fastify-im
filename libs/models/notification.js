@@ -1,25 +1,22 @@
 module.exports = ({ DataTypes, definePrimaryType, options }) => {
   return {
     model: {
-      targetId: {
-        type: definePrimaryType(),
+      targetId: definePrimaryType('targetId', {
         comment: '通知目标ID(系统用户userId或访客conversationMember记录id)',
         allowNull: false
-      },
+      }),
       targetType: {
         type: DataTypes.STRING,
         comment: '目标类型: user-系统用户, guest-访客'
       },
-      conversationId: {
-        type: definePrimaryType(),
+      conversationId: definePrimaryType('conversationId', {
         comment: '会话ID',
         allowNull: true
-      },
-      messageId: {
-        type: definePrimaryType(),
+      }),
+      messageId: definePrimaryType('messageId', {
         comment: '消息ID，同一目标同一消息只通知一次',
         allowNull: true
-      },
+      }),
       messageType: {
         type: DataTypes.STRING,
         comment: '消息类型'
