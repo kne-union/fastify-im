@@ -25,6 +25,7 @@ module.exports = fp(async (fastify, options) => {
             include: [
               {
                 model: models.conversationMember,
+                as: 'members',
                 where: { userId: userId2 }
               }
             ]
