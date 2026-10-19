@@ -71,7 +71,7 @@ module.exports = fp(async (fastify, options) => {
     );
   }
 
-  fastify.register(require('@kne/fastify-namespace'), {
+  await fastify.register(require('@kne/fastify-namespace'), {
     options,
     name: options.name,
     modules: [
@@ -87,4 +87,18 @@ module.exports = fp(async (fastify, options) => {
       ['services', path.resolve(__dirname, './libs/services')]
     ]
   });
+
+  if (options.trtc) {
+    const trtcOptions = options.trtc === true ? {} : options.trtc;
+    await fastify.register(
+      require('@kne/fastify-im-trtc'),
+      Object.assign(
+        {
+          prefix: options.prefix,
+          imName: options.name
+        },
+        trtcOptions
+      )
+    );
+  }
 });
