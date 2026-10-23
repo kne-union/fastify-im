@@ -1,5 +1,5 @@
 const fp = require('fastify-plugin');
-const { num, list, obj, success, member, message } = require('../schema/response');
+const { num, list, obj, success, forbidden, member, message } = require('../schema/response');
 
 const TAG = 'IM-消息';
 
@@ -12,7 +12,7 @@ module.exports = fp(async (fastify, options) => {
       onRequest: options.getAuthenticate('message'),
       schema: {
         tags: [TAG],
-        description: '分页获取会话内未撤回的消息，按序号从旧到新返回；当前用户不是会话成员时报错',
+        description: '分页获取会话内未撤回的消息，按序号从旧到新返回；当前用户不是会话成员时返回 403',
         summary: '获取消息历史',
         params: {
           type: 'object',
@@ -27,11 +27,14 @@ module.exports = fp(async (fastify, options) => {
             limit: { type: 'number', default: 50, description: '返回条数' }
           }
         },
-        response: success(
-          '消息列表',
-          obj('消息列表', {
-            list: list('消息列表，按序号从旧到新', message('消息', { sender: member('发送者的会话成员记录') }))
-          })
+        response: Object.assign(
+          success(
+            '消息列表',
+            obj('消息列表', {
+              list: list('消息列表，按序号从旧到新', message('消息', { sender: member('发送者的会话成员记录') }))
+            })
+          ),
+          forbidden('不是会话成员')
         )
       }
     },
@@ -40,8 +43,12 @@ module.exports = fp(async (fastify, options) => {
       const userId = request.userInfo?.userId;
       const { beforeId, limit = 50 } = request.query;
 
-      const member = await services.conversation.getMemberByUserAndConversation(userId, id);
-      if (!member) throw new Error('Not a member of this conversation');
+      const member = userId ? await services.conversation.getMemberByUserAndConversation(userId, id) : null;
+      if (!member) {
+        const err = new Error('Not a member of this conversation');
+        err.statusCode = 403;
+        throw err;
+      }
 
       const list = await services.message.getMessageHistory(id, member.id, beforeId, limit);
       return { list };

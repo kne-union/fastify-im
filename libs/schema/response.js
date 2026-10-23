@@ -24,6 +24,14 @@ const ok = (description = '操作成功') =>
     })
   );
 
+const forbidden = description => ({
+  403: obj(description, {
+    statusCode: num('HTTP 状态码，固定为 403'),
+    error: str('错误类型'),
+    message: str('错误信息')
+  })
+});
+
 const MEMBER_ROLE = '群内角色：owner 群主，admin 管理员，member 成员，guest 访客';
 
 const memberProperties = () =>
@@ -125,4 +133,4 @@ const systemMessage = obj(
   )
 );
 
-module.exports = { str, num, bool, any, list, obj, success, ok, MEMBER_ROLE, member, message, conversation, conversationListItem, memberListItem, systemMessage };
+module.exports = { str, num, bool, any, list, obj, success, ok, forbidden, MEMBER_ROLE, member, message, conversation, conversationListItem, memberListItem, systemMessage };
