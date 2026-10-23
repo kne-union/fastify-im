@@ -1,4 +1,7 @@
 const fp = require('fastify-plugin');
+const { str, any, obj, success } = require('../schema/response');
+
+const TAG = 'IM-服务';
 
 module.exports = fp(async (fastify, options) => {
   const { services } = fastify[options.name];
@@ -7,8 +10,10 @@ module.exports = fp(async (fastify, options) => {
     `${options.prefix}/welcome`,
     {
       schema: {
-        description: 'IM服务欢迎接口',
-        summary: '欢迎接口'
+        tags: [TAG],
+        description: 'IM服务欢迎接口，无需登录',
+        summary: '欢迎接口',
+        response: success('欢迎信息', obj('欢迎信息', { message: str('固定为 welcome to fastify-im') }))
       }
     },
     async request => {
@@ -20,8 +25,17 @@ module.exports = fp(async (fastify, options) => {
     `${options.prefix}/status`,
     {
       schema: {
-        description: 'IM服务状态',
-        summary: '服务状态'
+        tags: [TAG],
+        description: 'IM服务状态，无需登录',
+        summary: '服务状态',
+        response: success(
+          '服务状态',
+          obj('服务状态', {
+            status: str('固定为 ok'),
+            onlineCount: any('当前在线连接数（来自连接存储）'),
+            instanceId: any('当前进程实例 ID')
+          })
+        )
       }
     },
     async request => {
@@ -34,8 +48,12 @@ module.exports = fp(async (fastify, options) => {
     `${options.prefix}/metrics`,
     {
       schema: {
-        description: '当前进程的 IM 指标',
-        summary: '进程指标'
+        tags: [TAG],
+        description: '当前进程的 IM 指标，Prometheus 文本格式（text/plain; version=0.0.4），无需登录。包含在线连接数、离线通知积压、近一小时未确认消息数等；积压超过 backlogWarn 时记录告警日志',
+        summary: '进程指标',
+        response: {
+          200: { description: 'Prometheus 文本格式的指标（非 JSON）' }
+        }
       }
     },
     async (request, reply) => {

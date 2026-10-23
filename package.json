@@ -1,6 +1,6 @@
 {
   "name": "@kne/fastify-im",
-  "version": "0.2.3",
+  "version": "0.2.5",
   "description": "通用IM即时通讯Fastify插件，支持WebSocket消息、单聊群聊、系统消息推送、离线通知、身份认证与角色权限",
   "main": "index.js",
   "scripts": {
