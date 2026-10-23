@@ -1,4 +1,7 @@
 const fp = require('fastify-plugin');
+const { list, obj, success, ok, MEMBER_ROLE, member, conversation, conversationListItem, memberListItem } = require('../schema/response');
+
+const TAG = 'IM-会话';
 
 module.exports = fp(async (fastify, options) => {
   const { services } = fastify[options.name];
@@ -8,15 +11,22 @@ module.exports = fp(async (fastify, options) => {
     {
       onRequest: options.getAuthenticate('conversation'),
       schema: {
-        description: '获取当前用户的会话列表',
+        tags: [TAG],
+        description: '获取当前用户仍在其中的会话列表，含成员、最新一条消息和未读数，按最新消息时间倒序（排序只在当前页内进行）',
         summary: '获取会话列表',
         querystring: {
           type: 'object',
           properties: {
-            page: { type: 'number', default: 1 },
-            pageSize: { type: 'number', default: 20 }
+            page: { type: 'number', default: 1, description: '页码' },
+            pageSize: { type: 'number', default: 20, description: '每页数量' }
           }
-        }
+        },
+        response: success(
+          '会话列表',
+          obj('会话列表', {
+            list: list('当前页会话列表', conversationListItem)
+          })
+        )
       }
     },
     async request => {
@@ -32,7 +42,8 @@ module.exports = fp(async (fastify, options) => {
     {
       onRequest: options.getAuthenticate('conversation:create'),
       schema: {
-        description: '创建单聊会话(已存在则返回已有)',
+        tags: [TAG],
+        description: '创建与对方用户的单聊会话；已存在则返回已有会话并重新激活已退出的成员。创建后向会话成员推送 conversationUpdated（action: created）',
         summary: '创建单聊',
         body: {
           type: 'object',
@@ -40,7 +51,8 @@ module.exports = fp(async (fastify, options) => {
           properties: {
             targetUserId: { type: 'string', description: '对方用户ID' }
           }
-        }
+        },
+        response: success('单聊会话', obj('创建结果', { conversation: conversation('单聊会话') }))
       }
     },
     async request => {
@@ -62,7 +74,8 @@ module.exports = fp(async (fastify, options) => {
     {
       onRequest: options.getAuthenticate('conversation:create'),
       schema: {
-        description: '创建群聊',
+        tags: [TAG],
+        description: '创建群聊，当前用户为群主，memberIds 去重后作为普通成员加入。创建后向会话成员推送 conversationUpdated（action: created）',
         summary: '创建群聊',
         body: {
           type: 'object',
@@ -72,7 +85,8 @@ module.exports = fp(async (fastify, options) => {
             avatar: { type: 'string', description: '群头像' },
             memberIds: { type: 'array', items: { type: 'string' }, description: '初始成员ID列表' }
           }
-        }
+        },
+        response: success('群聊会话', obj('创建结果', { conversation: conversation('群聊会话') }))
       }
     },
     async request => {
@@ -99,8 +113,21 @@ module.exports = fp(async (fastify, options) => {
     {
       onRequest: options.getAuthenticate('conversation'),
       schema: {
-        description: '获取会话成员列表',
-        summary: '获取成员列表'
+        tags: [TAG],
+        description: '获取会话内仍未退出的成员，系统用户的名称和头像取自用户表',
+        summary: '获取成员列表',
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', description: '会话 ID' }
+          }
+        },
+        response: success(
+          '成员列表',
+          obj('成员列表', {
+            members: list('成员列表', memberListItem)
+          })
+        )
       }
     },
     async request => {
@@ -115,18 +142,26 @@ module.exports = fp(async (fastify, options) => {
     {
       onRequest: options.getAuthenticate('conversation:manage'),
       schema: {
-        description: '添加群成员',
+        tags: [TAG],
+        description: '向会话添加成员；成员已在会话中则直接返回，曾退出则重新加入并更新角色、昵称、头像。完成后向该成员推送 conversationUpdated（action: added）',
         summary: '添加成员',
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', description: '会话 ID' }
+          }
+        },
         body: {
           type: 'object',
           required: ['userId'],
           properties: {
-            userId: { type: 'string' },
-            role: { type: 'string', default: 'member' },
+            userId: { type: 'string', description: '要添加的系统用户 ID' },
+            role: { type: 'string', default: 'member', description: MEMBER_ROLE },
             nickname: { type: 'string', description: '参与者昵称(访客必填)' },
             avatar: { type: 'string', description: '参与者头像(访客必填)' }
           }
-        }
+        },
+        response: success('会话成员', obj('添加结果', { member: member() }))
       }
     },
     async request => {
@@ -144,8 +179,17 @@ module.exports = fp(async (fastify, options) => {
     {
       onRequest: options.getAuthenticate('conversation:manage'),
       schema: {
-        description: '移除群成员',
-        summary: '移除成员'
+        tags: [TAG],
+        description: '把系统用户标记为已退出会话，并向该用户推送 conversationUpdated（action: removed）；用户不在会话中时也返回成功',
+        summary: '移除成员',
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', description: '会话 ID' },
+            userId: { type: 'string', description: '要移除的系统用户 ID' }
+          }
+        },
+        response: ok('移除成功')
       }
     },
     async request => {
@@ -161,8 +205,16 @@ module.exports = fp(async (fastify, options) => {
     {
       onRequest: options.getAuthenticate('conversation:leave'),
       schema: {
-        description: '退出群聊',
-        summary: '退出群聊'
+        tags: [TAG],
+        description: '当前用户退出会话，并向自己推送 conversationUpdated（action: left）',
+        summary: '退出群聊',
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', description: '会话 ID' }
+          }
+        },
+        response: ok('退出成功')
       }
     },
     async request => {
@@ -179,15 +231,23 @@ module.exports = fp(async (fastify, options) => {
     {
       onRequest: options.getAuthenticate('conversation:manage'),
       schema: {
-        description: '更新会话信息(群名称/头像)',
+        tags: [TAG],
+        description: '更新会话名称和头像，未传的字段保持原值；完成后向会话成员推送 conversationUpdated（action: updated）',
         summary: '更新会话',
+        params: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', description: '会话 ID' }
+          }
+        },
         body: {
           type: 'object',
           properties: {
-            name: { type: 'string' },
-            avatar: { type: 'string' }
+            name: { type: 'string', description: '会话名称' },
+            avatar: { type: 'string', description: '会话头像' }
           }
-        }
+        },
+        response: ok('更新成功')
       }
     },
     async request => {
