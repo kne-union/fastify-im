@@ -3,6 +3,7 @@ const { list, obj, success, ok, forbidden, MEMBER_ROLE, member, conversation, co
 
 const TAG = 'IM-会话';
 const MANAGER_ROLES = ['owner', 'admin'];
+const ADMIN_ASSIGNABLE_ROLES = ['member', 'guest'];
 
 const createForbiddenError = message => {
   const err = new Error(message);
@@ -135,7 +136,7 @@ module.exports = fp(async (fastify, options) => {
       onRequest: options.getAuthenticate('conversation'),
       schema: {
         tags: [TAG],
-        description: '获取会话内仍未退出的成员，系统用户的名称和头像取自用户表',
+        description: '获取会话内仍未退出的成员，系统用户的名称和头像取自用户表；仅会话成员可查看，非成员或未登录返回 403',
         summary: '获取成员列表',
         params: {
           type: 'object',
@@ -143,16 +144,20 @@ module.exports = fp(async (fastify, options) => {
             id: { type: 'string', description: '会话 ID' }
           }
         },
-        response: success(
-          '成员列表',
-          obj('成员列表', {
-            members: list('成员列表', memberListItem)
-          })
+        response: Object.assign(
+          success(
+            '成员列表',
+            obj('成员列表', {
+              members: list('成员列表', memberListItem)
+            })
+          ),
+          forbidden('不是会话成员')
         )
       }
     },
     async request => {
       const { id } = request.params;
+      await getOperator(id, request.userInfo?.userId);
       const members = await services.conversation.getMembers(id);
       return { members };
     }
@@ -165,7 +170,7 @@ module.exports = fp(async (fastify, options) => {
       schema: {
         tags: [TAG],
         description:
-          '向群聊添加成员，仅群主（owner）和管理员（admin）可操作；单聊不允许添加成员，当前用户不是会话成员、不是群主/管理员或会话为单聊时返回 403。成员已在会话中则直接返回，曾退出则重新加入并更新角色、昵称、头像。完成后向该成员推送 conversationUpdated（action: added）',
+          '向群聊添加成员，仅群主（owner）和管理员（admin）可操作；单聊不允许添加成员。只有群主可以设置 owner / admin 角色，管理员只能添加 member / guest。当前用户不是会话成员、不是群主/管理员、管理员设置 owner / admin 角色或会话为单聊时返回 403。成员已在会话中则直接返回，曾退出则重新加入并更新角色、昵称、头像。完成后向该成员推送 conversationUpdated（action: added）',
         summary: '添加成员',
         params: {
           type: 'object',
@@ -178,7 +183,7 @@ module.exports = fp(async (fastify, options) => {
           required: ['userId'],
           properties: {
             userId: { type: 'string', description: '要添加的系统用户 ID' },
-            role: { type: 'string', default: 'member', description: MEMBER_ROLE },
+            role: { type: 'string', default: 'member', description: `${MEMBER_ROLE}；仅群主可设置 owner / admin` },
             nickname: { type: 'string', description: '参与者昵称(访客必填)' },
             avatar: { type: 'string', description: '参与者头像(访客必填)' }
           }
@@ -188,8 +193,12 @@ module.exports = fp(async (fastify, options) => {
     },
     async request => {
       const { id } = request.params;
-      assertGroupManager(await getOperator(id, request.userInfo?.userId));
+      const operatorInfo = await getOperator(id, request.userInfo?.userId);
+      assertGroupManager(operatorInfo);
       const { userId, role, nickname, avatar } = request.body;
+      if (operatorInfo.operator.role !== 'owner' && !ADMIN_ASSIGNABLE_ROLES.includes(role)) {
+        throw createForbiddenError('Only owner can assign this role');
+      }
       const member = await services.conversation.addMember(id, userId, role, { nickname, avatar });
       const clientId = services.conversation.getMemberClientId(member);
       await services.ws.sendToUser(clientId, 'conversationUpdated', { conversationId: id, action: 'added' });
@@ -204,7 +213,7 @@ module.exports = fp(async (fastify, options) => {
       schema: {
         tags: [TAG],
         description:
-          '把系统用户标记为已退出会话，并向该用户推送 conversationUpdated（action: removed）；用户不在会话中时也返回成功。会话成员可以移除自己；移除他人仅限群聊的群主（owner）和管理员（admin），当前用户不是会话成员、无权限或在单聊中移除他人时返回 403',
+          '把系统用户标记为已退出会话，并向该用户推送 conversationUpdated（action: removed）；用户不在会话中时也返回成功。会话成员可以移除自己；移除他人仅限群聊：群主（owner）可移除 admin / member / guest，管理员（admin）只能移除 member / guest，任何人都不能移除群主。当前用户不是会话成员、越级移除、移除群主或在单聊中移除他人时返回 403',
         summary: '移除成员',
         params: {
           type: 'object',
@@ -219,7 +228,13 @@ module.exports = fp(async (fastify, options) => {
     async request => {
       const { id, userId } = request.params;
       const operatorInfo = await getOperator(id, request.userInfo?.userId);
-      if (operatorInfo.operator.userId !== userId) assertGroupManager(operatorInfo);
+      if (operatorInfo.operator.userId !== userId) {
+        assertGroupManager(operatorInfo);
+        const target = await services.conversation.getMemberByUserAndConversation(userId, id);
+        if (target && (target.role === 'owner' || (target.role === 'admin' && operatorInfo.operator.role !== 'owner'))) {
+          throw createForbiddenError('Cannot remove a member with equal or higher role');
+        }
+      }
       await services.conversation.removeMember(id, userId);
       await services.ws.sendToUser(userId, 'conversationUpdated', { conversationId: id, action: 'removed' });
       return { success: true };
